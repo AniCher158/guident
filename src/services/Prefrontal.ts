@@ -21,8 +21,8 @@ const FEW_SHOT: { role: 'user' | 'assistant'; content: string }[] = [
       recognition: "It sounds like you're feeling really nervous about opening up, and that makes complete sense.",
       validation: "Crying in therapy is actually a sign that you're letting yourself feel — it's completely normal and nothing to be embarrassed about.",
       guidance: [
-        "Remind yourself before the session that your therapist has heard this before and won't judge you.",
-        "You don't have to share everything at once — go at whatever pace feels right for you.",
+        "Notice the thought 'I'll embarrass myself' — ask yourself: what's the evidence for and against that?",
+        "You don't have to share everything at once — going at your own pace is a skill, not a weakness.",
       ],
     }),
   },
@@ -36,8 +36,8 @@ const FEW_SHOT: { role: 'user' | 'assistant'; content: string }[] = [
       recognition: "It sounds like you're exhausted from trying to measure up to what everyone else wants from you.",
       validation: "Feeling like you never quite measure up often says more about impossible standards than about your actual worth.",
       guidance: [
-        "Try setting one small goal for yourself today — not for anyone else.",
-        "Notice something you did well this week and give yourself credit before checking if others approve.",
+        "That thought — 'they wish they picked someone else' — is mind-reading. What actually happened vs. what you assumed?",
+        "Write down one thing you completed today and read it back as if a friend told you they did it.",
       ],
     }),
   },
@@ -51,8 +51,8 @@ const FEW_SHOT: { role: 'user' | 'assistant'; content: string }[] = [
       recognition: "It sounds like this breakup is taking up so much space in your mind, and everything around you is keeping the pain alive.",
       validation: "Grieving a relationship takes time, and the obsessive thoughts are your heart trying to process a real loss.",
       guidance: [
-        "Give yourself permission to feel sad instead of trying to push the feelings away.",
-        "Try creating one small new routine that's just yours — it can help rebuild your sense of self.",
+        "Notice if you're catastrophising ('I'll never feel okay again') — feelings are temporary, not facts.",
+        "Schedule one small activity today that you used to enjoy, even if motivation is low — action comes before feeling.",
       ],
     }),
   },
@@ -66,8 +66,8 @@ const FEW_SHOT: { role: 'user' | 'assistant'; content: string }[] = [
       recognition: "It sounds like the darker months genuinely drain your mood every year, and that's a real pattern worth taking seriously.",
       validation: "Seasonal shifts in mood are incredibly common, and recognizing the pattern is already an important first step.",
       guidance: [
-        "Try to get outside for even 10 minutes of natural daylight each day — it helps regulate your body clock.",
-        "Add one small comforting routine to your winter days, like a walk, a playlist, or a warm drink you enjoy.",
+        "Track your mood against daylight and activity for a few days — patterns reveal what's actually driving the dip.",
+        "Schedule one small outdoor or social activity this week as a behavioural experiment — notice how you feel after.",
       ],
     }),
   },
@@ -81,8 +81,8 @@ const FEW_SHOT: { role: 'user' | 'assistant'; content: string }[] = [
       recognition: "It sounds like you're carrying a really heavy weight of self-criticism right now.",
       validation: "Struggling with self-acceptance is incredibly human — it doesn't mean something is fundamentally wrong with you.",
       guidance: [
-        "Try speaking to yourself today the way you would speak to a good friend who felt this way.",
-        "Notice one small thing you appreciate about yourself — it doesn't have to be big.",
+        "Notice the self-critical thought and ask: would I say this to a friend? If not, what would I say instead?",
+        "Write down one small piece of evidence that contradicts the belief that you're not good enough.",
       ],
     }),
   },
@@ -96,8 +96,8 @@ const FEW_SHOT: { role: 'user' | 'assistant'; content: string }[] = [
       recognition: "It sounds like you're running on empty, giving a lot and not feeling like it's being recognized.",
       validation: "Feeling demoralized when your effort isn't matched by respect or care is a completely understandable response.",
       guidance: [
-        "Shrink your focus to just the next 10 minutes when everything feels too big.",
-        "Talk to one person you trust about what you're going through — even saying it out loud can help.",
+        "Notice if you're using all-or-nothing thinking ('I can never say no') — what's a more balanced version of that thought?",
+        "Pick the single most important task today and do only that — behavioural overload fuels anxiety.",
       ],
     }),
   },
@@ -157,10 +157,13 @@ export class PrefrontalService {
             content:
               `You are Guident, a warm and empathetic mental health support assistant for teenagers. ` +
               `The user is feeling ${fusion.dominant}. ` +
+              `Use a Cognitive Behavioral Therapy (CBT) approach: help the user notice unhelpful thought patterns, ` +
+              `gently challenge distorted thinking (e.g. catastrophising, all-or-nothing thinking, mind-reading), ` +
+              `and suggest small behavioral experiments or reframes they can try right now. ` +
               `Respond with a JSON object containing:\n` +
               `- "recognition": 1 sentence acknowledging how they feel\n` +
               `- "validation": 1 sentence normalising their emotion\n` +
-              `- "guidance": array of 2 short, practical coping tips\n` +
+              `- "guidance": array of 2 short CBT-informed coping tips (e.g. thought records, reframes, or behavioural activation)\n` +
               `Be warm, concise, and teen-appropriate. Return only valid JSON, no markdown.`,
           },
           ...FEW_SHOT,
