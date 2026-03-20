@@ -1,0 +1,127 @@
+{
+  "seed": 7,
+  "output_dir": "artifacts/evaluation",
+  "emotion_labels": [
+    "calm",
+    "sad",
+    "anxious",
+    "overwhelmed",
+    "angry",
+    "lonely",
+    "hopeful",
+    "neutral"
+  ],
+  "cases": [
+    {
+      "id": "case_01",
+      "user_text": "School and friend drama have me feeling really overwhelmed and I do not know how to calm down.",
+      "face_emotion": "anxious",
+      "face_confidence": 0.63,
+      "expected_emotion": "overwhelmed",
+      "expected_strategy": "grounding",
+      "expected_distress": "medium",
+      "crisis": false
+    },
+    {
+      "id": "case_02",
+      "user_text": "I feel left out and alone after lunch every day and it is making me sad.",
+      "face_emotion": "sad",
+      "face_confidence": 0.71,
+      "expected_emotion": "lonely",
+      "expected_strategy": "reflective_listening",
+      "expected_distress": "medium",
+      "crisis": false
+    },
+    {
+      "id": "case_03",
+      "user_text": "I am actually kind of proud that I got through the exam and I feel better now.",
+      "face_emotion": "hopeful",
+      "face_confidence": 0.66,
+      "expected_emotion": "hopeful",
+      "expected_strategy": "encouragement",
+      "expected_distress": "low",
+      "crisis": false
+    },
+    {
+      "id": "case_04",
+      "user_text": "Everything feels pointless and hopeless and I cannot cope tonight.",
+      "face_emotion": "sad",
+      "face_confidence": 0.78,
+      "expected_emotion": "sad",
+      "expected_strategy": "escalation",
+      "expected_distress": "high",
+      "crisis": true
+    },
+    {
+      "id": "case_05",
+      "user_text": "My parents keep fighting and I am tense all the time waiting for it to start again.",
+      "face_emotion": "anxious",
+      "face_confidence": 0.68,
+      "expected_emotion": "anxious",
+      "expected_strategy": "validation",
+      "expected_distress": "medium",
+      "crisis": false
+    },
+    {
+      "id": "case_06",
+      "user_text": "I got so mad at my friend and now I feel guilty and angry at the same time.",
+      "face_emotion": "angry",
+      "face_confidence": 0.74,
+      "expected_emotion": "angry",
+      "expected_strategy": "coping_suggestion",
+      "expected_distress": "medium",
+      "crisis": false
+    }
+  ],
+  "ablations": [
+    {
+      "id": "prefrontal_only",
+      "label": "Prefrontal-only",
+      "text_signal": false,
+      "face_signal": false,
+      "fusion_mode": "none",
+      "condition_response": false
+    },
+    {
+      "id": "limbic_prefrontal",
+      "label": "Limbic + Prefrontal",
+      "text_signal": true,
+      "face_signal": false,
+      "fusion_mode": "text_only",
+      "condition_response": false
+    },
+    {
+      "id": "limbic_sensory_prefrontal",
+      "label": "Limbic + Sensory + Prefrontal",
+      "text_signal": true,
+      "face_signal": true,
+      "fusion_mode": "weighted",
+      "condition_response": false
+    },
+    {
+      "id": "full_fused_conditioned",
+      "label": "Full fused/conditioned Guident",
+      "text_signal": true,
+      "face_signal": true,
+      "fusion_mode": "weighted",
+      "condition_response": true
+    }
+  ],
+  "baselines": [
+    {
+      "id": "generic_chatbot",
+      "label": "Generic chatbot baseline",
+      "kind": "generic_chatbot"
+    },
+    {
+      "id": "text_only_emotion",
+      "label": "Text-only emotion baseline",
+      "kind": "text_only_emotion"
+    },
+    {
+      "id": "sentiment_only",
+      "label": "Sentiment-only baseline",
+      "kind": "sentiment_only"
+    }
+  ]
+}

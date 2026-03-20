@@ -14,10 +14,13 @@ import {
   View,
 } from 'react-native';
 import { AnalysisCard } from '../components/AnalysisCard';
+import { CounterfactualCard } from '../components/CounterfactualCard';
 import { MessageBubble } from '../components/MessageBubble';
+import { TrajectoryCard } from '../components/TrajectoryCard';
 import { SAFETY_DISCLAIMER } from '../constants/copy';
-import { analyzeCheckIn } from '../services/guidentEngine';
-import { AnalysisBundle, CapturedFrame, ChatMessage } from '../types';
+import { analyzeCheckIn, analyzeCounterfactuals } from '../services/guidentEngine';
+import { SessionMemory, SessionTrendSummary } from '../services/SessionMemory';
+import { AnalysisBundle, CapturedFrame, ChatMessage, CounterfactualAnalysis } from '../types/index';
 
 const starterMessages: ChatMessage[] = [
   {
@@ -38,6 +41,9 @@ export function GuidentScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
   const [input, setInput] = useState('School and friend drama have me feeling pretty overwhelmed.');
   const [analysis, setAnalysis] = useState<AnalysisBundle>();
+  const [counterfactuals, setCounterfactuals] = useState<CounterfactualAnalysis[]>([]);
+  const [activeCounterfactual, setActiveCounterfactual] = useState(0);
+  const [trajectory, setTrajectory] = useState<SessionTrendSummary>();
   const [loading, setLoading] = useState(false);
   const analyzingRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -49,6 +55,10 @@ export function GuidentScreen() {
   const [permission, requestPermission] = useCameraPermissions();
 
   const canUseCamera = useMemo(() => permission?.granted ?? false, [permission]);
+
+  useEffect(() => {
+    SessionMemory.loadSummary().then(setTrajectory).catch(() => undefined);
+  }, []);
 
   async function handleTakePhoto() {
     if (!cameraRef.current || !cameraReady || cameraBusy) {
@@ -85,8 +95,14 @@ export function GuidentScreen() {
     setMessages((current) => [...current, userMessage]);
     setLoading(true);
 
-    const nextAnalysis = await analyzeCheckIn(input.trim(), frame);
+    const [nextAnalysis, nextCounterfactuals] = await Promise.all([
+      analyzeCheckIn(input.trim(), frame),
+      analyzeCounterfactuals(input.trim(), frame),
+    ]);
     setAnalysis(nextAnalysis);
+    setCounterfactuals(nextCounterfactuals);
+    setActiveCounterfactual(Math.max(0, nextCounterfactuals.findIndex((item) => item.variant === 'full_engine_quality_gated')));
+    SessionMemory.appendAnalysis(nextAnalysis).then(setTrajectory).catch(() => undefined);
 
     const assistantMessage: ChatMessage = {
       id: `assistant-${Date.now()}`,
@@ -131,9 +147,15 @@ export function GuidentScreen() {
     <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', default: undefined })} style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Guident</Text>
-        <Text style={styles.subtitle}>Teen support prototype: reflective, safety-forward, and clear about limits.</Text>
+        <Text style={styles.subtitle}>Teen support prototype: on-device first, safety-forward, and clear about limits.</Text>
 
         <AnalysisCard analysis={analysis} />
+        <CounterfactualCard
+          counterfactuals={counterfactuals}
+          activeIndex={activeCounterfactual}
+          onStep={setActiveCounterfactual}
+        />
+        <TrajectoryCard summary={trajectory} />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Optional camera snapshot</Text>

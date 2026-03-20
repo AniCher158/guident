@@ -1,198 +1,229 @@
-import { CRISIS_COPY, TRUSTED_ADULT_COPY } from '../constants/copy';
 import {
   CrisisAssessment,
+  DistressAssessment,
   FaceEmotionResult,
   FusionResult,
+  ReplyCandidateScore,
+  StrategyRoute,
   SupportReply,
   TextEmotionResult,
-} from '../types';
-import { openai, MODEL } from './OpenAIClient';
+} from '../types/index';
+import { confidenceWeightedFusion } from '../fusion/confidence_weighted_fusion';
+import { generateSupportReply } from '../generation/prefrontal_generate';
+import { SupportStrategyLabel } from '../routing/strategy_labels';
+import { assessDistressIntensity } from '../emotion/distress_intensity';
+import { detectCrisis } from '../safety/crisis_detector';
+import { buildEscalationReply } from '../safety/escalation_logic';
+import { evaluateFallbackPolicy } from '../safety/fallback_policy';
 
-// ── Few-shot examples sampled from train_mixed.jsonl (counsel-chat, empathy) ─
-// Each assistant turn matches the JSON schema we request, teaching tone + format.
-const FEW_SHOT: { role: 'user' | 'assistant'; content: string }[] = [
-  {
-    role: 'user',
-    content: "I start counseling in a few days and I'm freaking out. My biggest fear is that I'll cry and embarrass myself.",
-  },
-  {
-    role: 'assistant',
-    content: JSON.stringify({
-      recognition: "It sounds like you're feeling really nervous about opening up, and that makes complete sense.",
-      validation: "Crying in therapy is actually a sign that you're letting yourself feel — it's completely normal and nothing to be embarrassed about.",
-      guidance: [
-        "Notice the thought 'I'll embarrass myself' — ask yourself: what's the evidence for and against that?",
-        "You don't have to share everything at once — going at your own pace is a skill, not a weakness.",
-      ],
-    }),
-  },
-  {
-    role: 'user',
-    content: "I feel like every time I do something someone asks me to, I never fully meet what they want. They always think they should have picked someone else.",
-  },
-  {
-    role: 'assistant',
-    content: JSON.stringify({
-      recognition: "It sounds like you're exhausted from trying to measure up to what everyone else wants from you.",
-      validation: "Feeling like you never quite measure up often says more about impossible standards than about your actual worth.",
-      guidance: [
-        "That thought — 'they wish they picked someone else' — is mind-reading. What actually happened vs. what you assumed?",
-        "Write down one thing you completed today and read it back as if a friend told you they did it.",
-      ],
-    }),
-  },
-  {
-    role: 'user',
-    content: "I'm obsessing about a terrible breakup. Everything is a constant reminder. How do I move on?",
-  },
-  {
-    role: 'assistant',
-    content: JSON.stringify({
-      recognition: "It sounds like this breakup is taking up so much space in your mind, and everything around you is keeping the pain alive.",
-      validation: "Grieving a relationship takes time, and the obsessive thoughts are your heart trying to process a real loss.",
-      guidance: [
-        "Notice if you're catastrophising ('I'll never feel okay again') — feelings are temporary, not facts.",
-        "Schedule one small activity today that you used to enjoy, even if motivation is low — action comes before feeling.",
-      ],
-    }),
-  },
-  {
-    role: 'user',
-    content: "Every winter I find myself getting sad because of the weather. How can I fight this?",
-  },
-  {
-    role: 'assistant',
-    content: JSON.stringify({
-      recognition: "It sounds like the darker months genuinely drain your mood every year, and that's a real pattern worth taking seriously.",
-      validation: "Seasonal shifts in mood are incredibly common, and recognizing the pattern is already an important first step.",
-      guidance: [
-        "Track your mood against daylight and activity for a few days — patterns reveal what's actually driving the dip.",
-        "Schedule one small outdoor or social activity this week as a behavioural experiment — notice how you feel after.",
-      ],
-    }),
-  },
-  {
-    role: 'user',
-    content: "I feel like I hate myself physically and emotionally sometimes. How can I start accepting myself?",
-  },
-  {
-    role: 'assistant',
-    content: JSON.stringify({
-      recognition: "It sounds like you're carrying a really heavy weight of self-criticism right now.",
-      validation: "Struggling with self-acceptance is incredibly human — it doesn't mean something is fundamentally wrong with you.",
-      guidance: [
-        "Notice the self-critical thought and ask: would I say this to a friend? If not, what would I say instead?",
-        "Write down one small piece of evidence that contradicts the belief that you're not good enough.",
-      ],
-    }),
-  },
-  {
-    role: 'user',
-    content: "I'm being overworked and it's giving me anxiety. It feels demoralizing. What can I do to manage my stress?",
-  },
-  {
-    role: 'assistant',
-    content: JSON.stringify({
-      recognition: "It sounds like you're running on empty, giving a lot and not feeling like it's being recognized.",
-      validation: "Feeling demoralized when your effort isn't matched by respect or care is a completely understandable response.",
-      guidance: [
-        "Notice if you're using all-or-nothing thinking ('I can never say no') — what's a more balanced version of that thought?",
-        "Pick the single most important task today and do only that — behavioural overload fuels anxiety.",
-      ],
-    }),
-  },
-];
+function topSecondaryEmotion(scores: TextEmotionResult['scores'], dominant: FusionResult['dominant']): FusionResult['dominant'] | undefined {
+  const secondary = scores.find((item) => item.label !== dominant);
+  if (!secondary) return undefined;
+  return secondary.score >= 0.16 ? secondary.label : undefined;
+}
 
-const crisisLexicon = ['suicide', 'kill myself', 'hurt myself', 'self harm', 'want to disappear', 'end it'];
+function detectTopic(userText: string): string | undefined {
+  const lowered = userText.toLowerCase();
+  if (lowered.includes('left out') || lowered.includes('alone') || lowered.includes('texted') || lowered.includes('friend')) return 'feeling shut out socially';
+  if (lowered.includes('parents') && lowered.includes('fighting')) return 'being stuck around conflict at home';
+  if (lowered.includes('school') || lowered.includes('class') || lowered.includes('exam') || lowered.includes('practice')) return 'school and performance pressure';
+  if (lowered.includes('angry') || lowered.includes('mad') || lowered.includes('regret') || lowered.includes('text back')) return 'anger that feels close to spilling over';
+  if (lowered.includes('coach') || lowered.includes('counselor') || lowered.includes('better now') || lowered.includes('calmer now') || lowered.includes('relieved')) return 'a shift after getting some support';
+  if (lowered.includes('crying earlier') || lowered.includes('was crying')) return 'the aftermath of an earlier hard moment';
+  if (lowered.includes('hopeless') || lowered.includes('pointless')) return 'everything feeling bleak and hard to carry';
+  return undefined;
+}
+
+function emotionPhrase(dominant: FusionResult['dominant'], secondary?: FusionResult['dominant']): string {
+  if (secondary && secondary !== dominant) {
+    if (dominant === 'sad' && secondary === 'lonely') return 'hurt and pretty alone';
+    if (dominant === 'anxious' && secondary === 'overwhelmed') return 'on edge and overloaded';
+    if (dominant === 'hopeful' && secondary === 'anxious') return 'a little steadier, even with nerves still there';
+    if (dominant === 'calm' && secondary === 'hopeful') return 'more settled, with some real relief underneath it';
+    return `${dominant}, with some ${secondary} mixed in`;
+  }
+  switch (dominant) {
+    case 'overwhelmed':
+      return 'really overloaded';
+    case 'anxious':
+      return 'on edge';
+    case 'lonely':
+      return 'alone in it';
+    case 'hopeful':
+      return 'a bit more hopeful';
+    default:
+      return dominant;
+  }
+}
+
+function recognitionFromUserText(userText: string, dominant: FusionResult['dominant'], secondary?: FusionResult['dominant']): string {
+  const topic = detectTopic(userText);
+  const feeling = emotionPhrase(dominant, secondary);
+  if (topic) {
+    return `It sounds like ${topic} is leaving you feeling ${feeling}.`;
+  }
+  return `It sounds like this is leaving you feeling ${feeling}.`;
+}
+
+function validationForContext(strategy: SupportStrategyLabel, dominant: FusionResult['dominant'], userText: string): string {
+  const lowered = userText.toLowerCase();
+  if (lowered.includes('left out') || lowered.includes('alone') || lowered.includes('no one texted')) {
+    return 'Feeling shut out or unimportant can hit hard, especially when it keeps repeating.';
+  }
+  if (lowered.includes('parents') && lowered.includes('fighting')) {
+    return 'Living around conflict can keep your body braced even when you are trying to get through normal things.';
+  }
+  if (lowered.includes('practice') || lowered.includes('exam') || lowered.includes('class')) {
+    return 'School and performance pressure can stay in your head long after the moment is over.';
+  }
+  if (lowered.includes('angry') || lowered.includes('mad') || lowered.includes('regret')) {
+    return 'That kind of anger usually means something important feels crossed, exposed, or unfair.';
+  }
+  if (strategy === 'encouragement' && (dominant === 'hopeful' || dominant === 'calm')) {
+    return 'A steadier moment is still real progress, even if another part of you does not fully trust it yet.';
+  }
+  if (strategy === 'grounding') {
+    return 'When your system is overloaded, narrowing the next few minutes is often more useful than trying to solve everything at once.';
+  }
+  if (strategy === 'reflective_listening') {
+    return 'It makes sense that this would feel heavy before you are ready to problem-solve it.';
+  }
+  return 'What you are feeling fits the situation you described, even if it is messy or mixed.';
+}
+
+function guidanceForContext(strategy: SupportStrategyLabel, dominant: FusionResult['dominant'], userText: string): string[] | undefined {
+  const lowered = userText.toLowerCase();
+  if (strategy === 'reflective_listening' && (lowered.includes('left out') || lowered.includes('texted'))) {
+    return ['Name the part that hurt most: being ignored, being unsure, or feeling replaceable.', 'Send one honest message to a safe person instead of waiting until you can phrase it perfectly.'];
+  }
+  if (strategy === 'grounding' && lowered.includes('parents') && lowered.includes('fighting')) {
+    return ['Focus on the next 10 minutes only, not the whole pattern at home.', 'Do one physical reset like unclenching your jaw or pressing both feet into the floor for 30 seconds.'];
+  }
+  if (strategy === 'encouragement' && (lowered.includes('coach') || lowered.includes('counselor') || lowered.includes('cousin'))) {
+    return ['Notice what helped this interaction go better than it might have a week ago.', 'Keep the support loop open by sending one short follow-up instead of disappearing again.'];
+  }
+  if (strategy === 'coping_suggestion' && (dominant === 'angry' || lowered.includes('text back'))) {
+    return ['Delay the response long enough to write the uncensored version somewhere private first.', 'Decide whether you want the next message to set a boundary, ask for repair, or simply pause the conversation.'];
+  }
+  return undefined;
+}
+
+function strategyGuidance(strategy: SupportStrategyLabel, dominant: FusionResult['dominant']): string[] {
+  switch (strategy) {
+    case 'grounding':
+      return ['Shrink the problem to the next 10-minute step only.', 'Do one slow exhale longer than your inhale for 60 seconds.'];
+    case 'reflective_listening':
+      return ['Name the heaviest part of this out loud or in writing without trying to fix it yet.', 'If there is one safe person, send them one honest sentence about what today feels like.'];
+    case 'encouragement':
+      return ['Name one thing you handled better than you would have a month ago.', 'Pick one small repeatable action that can protect this progress.'];
+    case 'coping_suggestion':
+      return ['Pause before replying and write the uncensored version in notes first.', 'Ask what boundary, expectation, or hurt is underneath the anger.'];
+    case 'escalation':
+      return ['Get near a trusted adult or another safe person now.', 'Call or text 988 now if you are in the U.S. or Canada, or contact local emergency support.'];
+    default:
+      if (dominant === 'sad' || dominant === 'lonely') {
+        return ['Pick one small action that usually helps a little, even if motivation is low.', 'Text one safe person a concrete message about what today feels like.'];
+      }
+      return ['Notice the strongest thought in your head and label it as a thought, not a fact.', 'Pick one small action for the next hour that would make today 5% easier.'];
+  }
+}
+
+function buildTemplateReply(userText: string, text: TextEmotionResult, fusion: FusionResult, strategy: StrategyRoute): SupportReply {
+  const recognitionPrefix: Record<SupportStrategyLabel, string> = {
+    validation: 'It sounds like',
+    reflective_listening: 'I am hearing that',
+    encouragement: 'It sounds like',
+    coping_suggestion: 'It sounds like',
+    grounding: 'It sounds like',
+    escalation: 'What you wrote sounds like',
+  };
+  const secondary = topSecondaryEmotion(text.scores, fusion.dominant);
+  const contextualGuidance = guidanceForContext(strategy.label, fusion.dominant, userText);
+
+  return {
+    recognition: fusion.dominant === 'neutral'
+      ? `${recognitionPrefix[strategy.label]} a lot is sitting in the background right now.`
+      : recognitionFromUserText(userText, fusion.dominant, secondary),
+    validation: validationForContext(strategy.label, fusion.dominant, userText),
+    guidance: contextualGuidance ?? strategyGuidance(strategy.label, fusion.dominant),
+  };
+}
 
 export class PrefrontalService {
   assessCrisis(input: string): CrisisAssessment {
-    const lowered = input.toLowerCase();
-    const flags = crisisLexicon.filter((cue) => lowered.includes(cue));
+    return detectCrisis(input);
+  }
 
-    if (flags.length > 0) {
-      return { level: 'high', flags, message: CRISIS_COPY, trustedAdultPrompt: TRUSTED_ADULT_COPY };
-    }
-    if (/(can't cope|unsafe|hopeless|no reason to live)/i.test(input)) {
-      return {
-        level: 'medium',
-        flags: ['elevated distress'],
-        message: 'This sounds serious. Please reach out to a trusted adult or counselor now.',
-        trustedAdultPrompt: TRUSTED_ADULT_COPY,
-      };
-    }
-    return {
-      level: 'low',
-      flags: [],
-      message: 'No explicit crisis phrases detected.',
-      trustedAdultPrompt: TRUSTED_ADULT_COPY,
-    };
+  assessDistress(input: string, text: TextEmotionResult, fusion: FusionResult, crisis: CrisisAssessment): DistressAssessment {
+    return assessDistressIntensity(input, text, fusion, crisis);
   }
 
   fuse(text: TextEmotionResult, face?: FaceEmotionResult): FusionResult {
-    const textWeight = face ? 0.75 : 1;
-    const imageWeight = face ? 0.25 : 0;
-    const confidence = Math.min(0.95, 0.45 + text.scores[0].score * textWeight + (face?.confidence ?? 0) * imageWeight);
-    const dominant = textWeight >= imageWeight ? text.dominant : face?.dominant ?? text.dominant;
-
-    return {
-      dominant,
-      confidence: Number(confidence.toFixed(3)),
-      textWeight,
-      imageWeight,
-      rationale: [
-        `Text weighted at ${Math.round(textWeight * 100)}%.`,
-        face ? `Image contributed ${Math.round(imageWeight * 100)}%.` : 'No image signal.',
-      ],
-    };
+    return confidenceWeightedFusion(text, face);
   }
 
-  async buildReply(fusion: FusionResult, crisis: CrisisAssessment, userText: string): Promise<SupportReply> {
-    try {
-      const resp = await openai.chat.completions.create({
-        model: MODEL,
-        messages: [
-          {
-            role: 'system',
-            content:
-              `You are Guident, a warm and empathetic mental health support assistant for teenagers. ` +
-              `The user is feeling ${fusion.dominant}. ` +
-              `Use a Cognitive Behavioral Therapy (CBT) approach: help the user notice unhelpful thought patterns, ` +
-              `gently challenge distorted thinking (e.g. catastrophising, all-or-nothing thinking, mind-reading), ` +
-              `and suggest small behavioral experiments or reframes they can try right now. ` +
-              `Respond with a JSON object containing:\n` +
-              `- "recognition": 1 sentence acknowledging how they feel\n` +
-              `- "validation": 1 sentence normalising their emotion\n` +
-              `- "guidance": array of 2 short CBT-informed coping tips (e.g. thought records, reframes, or behavioural activation)\n` +
-              `Be warm, concise, and teen-appropriate. Return only valid JSON, no markdown.`,
-          },
-          ...FEW_SHOT,
-          { role: 'user', content: userText },
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.7,
-        max_tokens: 300,
-      });
+  async buildReply(
+    text: TextEmotionResult,
+    face: FaceEmotionResult | undefined,
+    fusion: FusionResult,
+    strategy: StrategyRoute,
+    crisis: CrisisAssessment,
+    distress: DistressAssessment,
+    userText: string,
+  ): Promise<{ reply: SupportReply; retrievalRationale: string[]; candidateScores: ReplyCandidateScore[]; preferredStyle: import('../generation/style_profiles').ResponseStyle; safety: { cautiousMode: boolean; fallbackTriggered: boolean; reason: string; rationale: string[] } }> {
+    const fallback = buildTemplateReply(userText, text, fusion, strategy);
+    const safety = evaluateFallbackPolicy(fusion, strategy, distress);
 
-      const parsed = JSON.parse(resp.choices[0].message.content!);
-      const reply: SupportReply = {
-        recognition: parsed.recognition ?? '',
-        validation: parsed.validation ?? '',
-        guidance: parsed.guidance ?? [],
-      };
-      if (crisis.level !== 'low') {
-        reply.safetyNote = `${crisis.message} ${crisis.trustedAdultPrompt}`;
-      }
-      return reply;
-    } catch (e) {
-      console.warn('[Prefrontal] OpenAI call failed:', e);
+    if (crisis.level === 'high') {
       return {
-        recognition: 'It sounds like you are going through a lot right now.',
-        validation: 'What you are feeling is valid and understandable.',
-        guidance: ['Take a slow breath.', 'Reach out to someone you trust.'],
-        ...(crisis.level !== 'low' && { safetyNote: `${crisis.message} ${crisis.trustedAdultPrompt}` }),
+        reply: buildEscalationReply(crisis, distress.level),
+        retrievalRationale: ['Skipped retrieval because crisis escalation overrides normal support generation.'],
+        candidateScores: [{ source: 'crisis-escalation', score: 1, rationale: ['Crisis path bypassed candidate generation.'] }],
+        preferredStyle: 'safety_focused',
+        safety,
       };
     }
+
+    if (crisis.level === 'medium' || distress.level === 'high') {
+      return {
+        reply: buildEscalationReply(crisis, distress.level),
+        retrievalRationale: ['Skipped retrieval because elevated distress uses the safer direct-support path.'],
+        candidateScores: [{ source: 'elevated-distress-escalation', score: 1, rationale: ['Elevated distress path bypassed candidate generation.'] }],
+        preferredStyle: 'safety_focused',
+        safety,
+      };
+    }
+
+    if (safety.fallbackTriggered) {
+      return {
+        reply: {
+          ...fallback,
+          validation: `${fallback.validation} I want to stay careful with the parts that still look mixed or uncertain.`,
+          guidance: strategy.label === 'grounding'
+            ? ['Focus only on the next few minutes, not the whole situation.', 'Try one slow breath cycle and then decide on one safe next step.']
+            : fallback.guidance,
+        },
+        retrievalRationale: [`Skipped retrieval because fallback policy activated: ${safety.reason}.`],
+        candidateScores: [{ source: 'uncertainty-fallback', style: 'safety_focused', score: 1, rationale: ['Uncertainty-aware fallback replaced candidate generation.'] }],
+        preferredStyle: 'safety_focused',
+        safety,
+      };
+    }
+
+    const generated = await generateSupportReply({ userText, text, face, fusion, strategy, crisis, safety, fallback });
+
+    return {
+      reply: generated.reply,
+      retrievalRationale: generated.retrievalRationale,
+      candidateScores: generated.candidateReranking.map((item) => ({
+        source: item.source,
+        score: item.score,
+        style: item.style,
+        rationale: item.rationale,
+      })),
+      preferredStyle: generated.preferredStyle,
+      safety,
+    };
   }
 }
 

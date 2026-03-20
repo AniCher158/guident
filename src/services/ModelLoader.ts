@@ -1,6 +1,5 @@
 /**
  * ModelLoader — initializes on-device models once and exposes them.
- * Phi-2 is replaced by OpenAI (gpt-4.1-nano) in Prefrontal.ts.
  * Call `ModelLoader.init()` early in App.tsx.
  */
 import { Asset } from 'expo-asset';
@@ -73,6 +72,5 @@ export const ModelLoader = {
   },
   get distilbert() { return state.distilbert; },
   get fer2013() { return state.fer2013; },
-  get phi2() { return null; },
-  get status() { return { ...state.status, phi2: 'unavailable' as ModelStatus }; },
+  get status() { return { ...state.status }; },
 };

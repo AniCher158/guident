@@ -27,15 +27,14 @@
       },
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.guident"
     },
     "plugins": [
-      "expo-camera"
+      "expo-camera",
+      "expo-asset"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

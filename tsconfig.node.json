@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "dist-node",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/run_benchmark.ts",
+    "src/types/index.ts",
+    "src/utils/emotion.ts",
+    "src/fusion/**/*.ts",
+    "src/routing/**/*.ts",
+    "src/safety/**/*.ts",
+    "src/emotion/distress_intensity.ts",
+    "src/emotion/keyword_text_analysis.ts",
+    "src/retrieval/**/*.ts",
+    "src/generation/style_profiles.ts"
+  ]
+}

@@ -1,4 +1,4 @@
-import { EmotionLabel, EmotionScore } from '../types';
+import { EmotionLabel, EmotionScore } from '../types/index';
 
 export const EMOTION_ORDER: EmotionLabel[] = [
   'overwhelmed',

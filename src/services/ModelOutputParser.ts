@@ -1,4 +1,4 @@
-import { EmotionLabel, SupportReply } from '../types';
+import { EmotionLabel, SupportReply } from '../types/index';
 
 const allowedEmotions = new Set<EmotionLabel>([
   'calm',

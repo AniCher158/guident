@@ -9,6 +9,7 @@ node_modules/
 # Expo
 .expo/
 dist/
+dist-node/
 web-build/
 expo-env.d.ts
 
@@ -34,12 +35,17 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+!.env.example
 
 # typescript
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # generated native folders
 /ios
 /android
+artifacts/
 pretrained/model/
